@@ -10,12 +10,11 @@ This CDK project provides a robust, serverless notification system for monitorin
 
 ## 🏗️ Architecture
 
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────────┐
-│ AWS Services│    │  EventBridge │    │     SNS     │    │ AWS Chatbot │
-│   (DMS,     │───▶│    Rules     │───▶│   Topics    │───▶│   (Slack)   │
-│ Glue, SFN)  │    │              │    │             │    │             │
-└─────────────┘    └──────────────┘    └─────────────┘    └─────────────┘
+```mermaid
+flowchart LR
+  A[AWS Services\n(DMS, Glue, Step Fn)] --> B[EventBridge\nRules]
+  B --> C[SNS\nTopics]
+  C --> D[AWS Chatbot\n(Slack)]
 ```
 
 ## ✨ Features

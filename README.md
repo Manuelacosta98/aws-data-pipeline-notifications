@@ -12,9 +12,9 @@ This CDK project provides a robust, serverless notification system for monitorin
 
 ```mermaid
 flowchart LR
-  A[AWS Services\n(DMS, Glue, Step Fn)] --> B[EventBridge\nRules]
-  B --> C[SNS\nTopics]
-  C --> D[AWS Chatbot\n(Slack)]
+  A["AWS Services<br/>(DMS, Glue, Step Fn)"] --> B["EventBridge<br/>Rules"]
+  B --> C["SNS<br/>Topics"]
+  C --> D["AWS Chatbot<br/>(Slack)"]
 ```
 
 ## ✨ Features

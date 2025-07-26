@@ -106,7 +106,7 @@ aws-data-pipeline-notifications/
 ├── cdk.json                         # CDK configuration
 ├── requirements.txt                 # Python dependencies
 ├── requirements-dev.txt             # Development dependencies
-├── aws_data_pipeline_notifications/
+├── infra/
 │   ├── __init__.py
 │   └── aws_data_pipeline_notifications_stack.py
 └── tests/

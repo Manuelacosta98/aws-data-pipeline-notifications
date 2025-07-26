@@ -3,7 +3,7 @@ import os
 
 import aws_cdk as cdk
 
-from aws_data_pipeline_notifications.aws_data_pipeline_notifications_stack import AwsDataPipelineNotificationsStack
+from infra.aws_data_pipeline_notifications_stack import AwsDataPipelineNotificationsStack
 
 
 app = cdk.App()

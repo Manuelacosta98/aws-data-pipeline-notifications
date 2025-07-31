@@ -17,6 +17,10 @@ flowchart LR
   C --> D["AWS Chatbot<br/>(Slack)"]
 ```
 
+The system is deployed as separate CDK stacks:
+- **EventBridgeStack**: Manages EventBridge rules and SNS topics
+- **ChatBotStack**: Handles AWS Chatbot configuration for Slack integration
+
 ## ✨ Features
 
 - **Multi-Service Monitoring**: Captures errors from DMS, AWS Glue, and Step Functions
@@ -42,16 +46,25 @@ flowchart LR
    cd aws-data-pipeline-notifications
    ```
 
-2. **Set up Python virtual environment**
+2. **Set up environment configuration**
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate.bat
+   cp .env.example .env
+   ```
+   Edit `.env` file with your AWS configuration:
+   ```
+   CDK_DEFAULT_ACCOUNT=your-account-id
+   CDK_DEFAULT_REGION=your-preferred-region
+   AWS_REGION=your-preferred-region
+   AWS_ACCESS_KEY_ID=your-access-key
+   AWS_SECRET_ACCESS_KEY=your-secret-key
+   SLACK_WORKSPACE_ID=your-slack-workspace-id
+   SLACK_CHANNEL_ID=your-slack-channel-id
    ```
 
-3. **Install dependencies**
+3. **Install dependencies using pipenv**
    ```bash
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt  # For development
+   pipenv install
+   pipenv install --dev  # For development dependencies
    ```
 
 4. **Bootstrap CDK (first time only)**
@@ -71,32 +84,39 @@ flowchart LR
    cdk deploy
    ```
 
-3. **Configure AWS Chatbot** (Post-deployment)
-   - Navigate to AWS Chatbot console
-   - Configure Slack workspace integration
-   - Subscribe to the created SNS topics
+3. **Configure Slack Integration** (Pre-deployment)
+   - Set your Slack workspace and channel IDs in the `.env` file
+   - The ChatBotStack will automatically configure AWS Chatbot with SNS integration
 
 ## 🛠️ Configuration
 
-### Environment Variables
+### Environment Configuration
 
-Set the following environment variables or modify `app.py`:
+The application uses environment variables loaded from the `.env` file:
 
-```python
-env=cdk.Environment(
-    account='your-account-id',
-    region='your-preferred-region'
-)
+```bash
+CDK_DEFAULT_ACCOUNT=your-account-id
+CDK_DEFAULT_REGION=your-preferred-region
+AWS_REGION=your-preferred-region
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+SLACK_WORKSPACE_ID=your-slack-workspace-id
+SLACK_CHANNEL_ID=your-slack-channel-id
 ```
 
 ### Customization
 
-The stack can be customized by modifying `aws_data_pipeline_notifications_stack.py`:
+The stacks can be customized by modifying the respective files:
 
+**EventBridge Rules** (`infra/eventbridge_stack.py`):
 - Add additional AWS services to monitor
-- Configure custom EventBridge rules
-- Set up multiple notification channels
-- Add filtering and routing logic
+- Configure custom EventBridge rules and patterns
+- Modify SNS topic configuration
+
+**Chatbot Configuration** (`infra/chatbot_stack.py`):
+- Update Slack workspace and channel IDs
+- Configure IAM permissions
+- Add multiple notification channels
 
 ## 📁 Project Structure
 
@@ -104,11 +124,15 @@ The stack can be customized by modifying `aws_data_pipeline_notifications_stack.
 aws-data-pipeline-notifications/
 ├── app.py                           # CDK app entry point
 ├── cdk.json                         # CDK configuration
-├── requirements.txt                 # Python dependencies
-├── requirements-dev.txt             # Development dependencies
+├── .env.example                     # Environment variables template
+├── .env                            # Environment variables (create from .env.example)
+├── Pipfile                         # Pipenv configuration
+├── requirements.txt                # Python dependencies
+├── requirements-dev.txt            # Development dependencies
 ├── infra/
 │   ├── __init__.py
-│   └── aws_data_pipeline_notifications_stack.py
+│   ├── eventbridge_stack.py        # EventBridge rules and SNS topics
+│   └── chatbot_stack.py            # AWS Chatbot configuration
 └── tests/
     ├── __init__.py
     └── unit/

@@ -12,32 +12,42 @@ def lambda_handler(event, context):
     detail = event.get('detail', {})
     source = event.get('source', '')
     detail_type = event.get('detail-type', '')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
     
-    # Create Chatbot-compatible message structure
+    # Create Chatbot-compatible message structure with log URLs
     if source == 'aws.states':
         title = "🚨 Step Function Failed"
-        description = f"Execution: {detail.get('name', 'Unknown')}\nStatus: {detail.get('status', 'Unknown')}\nState Machine: {detail.get('stateMachineArn', '').split(':')[-1]}"
+        execution_arn = detail.get('executionArn', '')
+        state_machine_name = detail.get('stateMachineArn', '').split(':')[-1]
+        description = f"Execution: {detail.get('name', 'Unknown')}\nStatus: {detail.get('status', 'Unknown')}\nState Machine: {state_machine_name}"
+        log_url = f"https://{region}.console.aws.amazon.com/states/home?region={region}#/executions/details/{execution_arn.replace(':', '%3A').replace('/', '%2F')}"
         
     elif source == 'aws.dms':
         title = "🚨 DMS Task Failed"
-        description = f"Task: {detail.get('task-id', 'Unknown')}\nState: {detail.get('state', 'Unknown')}"
+        task_id = detail.get('task-id', 'Unknown')
+        description = f"Task: {task_id}\nState: {detail.get('state', 'Unknown')}"
+        log_url = f"https://{region}.console.aws.amazon.com/dms/v2/home?region={region}#taskDetails/{task_id}"
         
     elif source == 'aws.glue':
         title = "🚨 Glue Job Failed"
-        description = f"Job: {detail.get('jobName', 'Unknown')}\nState: {detail.get('state', 'Unknown')}\nError Message: {detail.get('message', 'None')}"
-        
+        job_name = detail.get('jobName', 'Unknown')
+        job_run_id = detail.get('jobRunId', '')
+        description = f"Job: {job_name}\nState: {detail.get('state', 'Unknown')}\nError Message: {detail.get('message', 'None')}"
+        log_url = f"https://{region}.console.aws.amazon.com/gluestudio/home?region={region}#/editor/job/{job_name}/runs"
+            
     else:
         title = "🚨 Pipeline Alert"
         description = json.dumps(detail, indent=2)
+        log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:logs-insights"
     
-    # Create Chatbot-compatible message
+    # Create Chatbot message with action button
     chatbot_message = {
         "version": "1.0",
         "source": "custom",
         "content": {
             "textType": "client-markdown",
             "title": title,
-            "description": description,
+            "description": f"{description}\n\n<{log_url}|View Logs in AWS Console>",
             "nextSteps": ["Check AWS Console for more details"],
             "keywords": [source, "failure", "alert"]
         }

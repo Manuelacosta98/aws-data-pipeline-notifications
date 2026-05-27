@@ -1,188 +1,68 @@
 # AWS Data Pipeline Notifications
 
+[![CI](https://github.com/Manuelacosta98/aws-data-pipeline-notifications/actions/workflows/ci.yml/badge.svg)](https://github.com/Manuelacosta98/aws-data-pipeline-notifications/actions/workflows/ci.yml)
 [![AWS CDK](https://img.shields.io/badge/AWS%20CDK-2.x-orange.svg)](https://aws.amazon.com/cdk/)
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Event-driven notification system for AWS data pipeline monitoring and alerting**
+> Bidirectional Slack ↔ AWS for data pipeline operations. Alerts flow outbound (EventBridge → Chatbot → Slack); `/pipeline rerun` slash commands flow inbound (API Gateway → Lambda → Glue / Step Functions). Deployed from CI via passwordless GitHub OIDC.
 
-This CDK project provides a robust, serverless notification system for monitoring AWS data pipeline errors and failures. It automatically captures error events from DMS, Glue, and Step Functions using Amazon EventBridge, then routes them to SNS topics integrated with AWS Chatbot for real-time Slack notifications.
+## What this solves
 
-## 🏗️ Architecture
+Most data pipelines fail silently — a Glue job dies at 2 AM, a DMS task stops mid-stream, a Step Functions execution times out, and nobody knows until a dashboard looks wrong the next morning. Even once you know, fixing it usually means SSH-ing into a console.
+
+This project closes both halves of the loop:
+
+1. **Outbound** — catches failures from DMS, AWS Glue, Step Functions, and QuickSight in near real time, classifies them by severity (🚨 / ⚠️ / ✅ / ℹ️), and posts rich Slack messages with deep links to the AWS console. QuickSight alerts are *actively enriched* via the QuickSight API to resolve dataset IDs to human-readable names and pull the detailed error message.
+2. **Inbound** *(opt-in)* — exposes a `/pipeline rerun glue <job>` slash command. The alert itself contains the exact command. One alert, one command, the job restarts. No console.
+3. **Proactive monitors** *(opt-in)* — covers the gap that AWS doesn't emit events for: Redshift COPY load errors (in `stl_load_errors`) and DMS field-level errors (in CloudWatch Logs). Polling Lambdas emit `custom.*` EventBridge events that flow through the same formatter as native AWS sources. Invokable on-demand from Slack via `@aws lambda invoke`.
+
+## Architecture (one-paragraph version)
+
+Six CDK stacks, four always-on and two opt-in. `EventBridgeStack` listens to AWS source events and routes them through a Lambda formatter to SNS. `ChatBotStack` subscribes Chatbot to that topic and posts into Slack. `SlackActionsStack` is an HTTP API + Lambda that receives signed slash commands and re-runs jobs. `RedshiftMonitorStack` and `DmsMonitorStack` are opt-in pollers that emit `custom.*` events for error sources AWS doesn't emit natively. `GithubOIDCRoleStack` provisions the OIDC role CI uses for passwordless deploys.
 
 ```mermaid
 flowchart LR
-  A["AWS Services<br/>(DMS, Glue, Step Fn)"] --> B["EventBridge<br/>Rules"]
-  B --> C["SNS<br/>Topics"]
-  C --> D["AWS Chatbot<br/>(Slack)"]
+  A["DMS / Glue / Step Functions"] --> B["EventBridge Rules"]
+  B --> C["Lambda Formatter"] --> D["SNS"] --> E["AWS Chatbot"] --> F["Slack"]
+  F -. "/pipeline rerun ..." .-> G["API Gateway"]
+  G --> H["Lambda<br/>(HMAC verify)"] --> I["Glue / SFN APIs"]
 ```
 
-The system is deployed as separate CDK stacks:
-- **EventBridgeStack**: Manages EventBridge rules and SNS topics
-- **ChatBotStack**: Handles AWS Chatbot configuration for Slack integration
+For everything else — architecture deep-dive, security model, ADRs, operations runbook — see **[`docs/`](docs/README.md)**.
 
-## ✨ Features
-
-- **Multi-Service Monitoring**: Captures errors from DMS, AWS Glue, and Step Functions
-- **Real-time Notifications**: Instant Slack alerts via AWS Chatbot integration
-- **Event-Driven Architecture**: Uses EventBridge for scalable, serverless event processing
-- **Infrastructure as Code**: Fully defined using AWS CDK for reproducible deployments
-- **Cost-Effective**: Pay-per-use serverless architecture with minimal overhead
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- AWS CLI configured with appropriate permissions
-- Python 3.8 or higher
-- Node.js (for AWS CDK)
-- AWS CDK v2.x installed globally
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Manuelacosta98/aws-data-pipeline-notifications.git
-   cd aws-data-pipeline-notifications
-   ```
-
-2. **Set up environment configuration**
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `.env` file with your AWS configuration:
-   ```
-   CDK_DEFAULT_ACCOUNT=your-account-id
-   CDK_DEFAULT_REGION=your-preferred-region
-   AWS_REGION=your-preferred-region
-   AWS_ACCESS_KEY_ID=your-access-key
-   AWS_SECRET_ACCESS_KEY=your-secret-key
-   SLACK_WORKSPACE_ID=your-slack-workspace-id
-   SLACK_CHANNEL_ID=your-slack-channel-id
-   ```
-
-3. **Install dependencies using pipenv**
-   ```bash
-   pipenv install
-   pipenv install --dev  # For development dependencies
-   ```
-
-4. **Bootstrap CDK (first time only)**
-   ```bash
-   cdk bootstrap
-   ```
-
-### Deployment
-
-1. **Synthesize CloudFormation template**
-   ```bash
-   cdk synth
-   ```
-
-2. **Deploy the stack**
-   ```bash
-   cdk deploy
-   ```
-
-3. **Configure Slack Integration** (Pre-deployment)
-   - Set your Slack workspace and channel IDs in the `.env` file
-   - The ChatBotStack will automatically configure AWS Chatbot with SNS integration
-
-## 🛠️ Configuration
-
-### Environment Configuration
-
-The application uses environment variables loaded from the `.env` file:
+## Quick Start
 
 ```bash
-CDK_DEFAULT_ACCOUNT=your-account-id
-CDK_DEFAULT_REGION=your-preferred-region
-AWS_REGION=your-preferred-region
-AWS_ACCESS_KEY_ID=your-access-key
-AWS_SECRET_ACCESS_KEY=your-secret-key
-SLACK_WORKSPACE_ID=your-slack-workspace-id
-SLACK_CHANNEL_ID=your-slack-channel-id
+git clone https://github.com/Manuelacosta98/aws-data-pipeline-notifications.git
+cd aws-data-pipeline-notifications
+
+uv sync --dev                                   # install deps
+cp .env.example .env && $EDITOR .env            # set Slack workspace/channel IDs
+uv run cdk bootstrap                            # first time only
+uv run cdk deploy EventBridgeStack ChatBotStack
+uv run pytest                                   # 46 tests, ~96% coverage
 ```
 
-### Customization
+AWS credentials come from the standard AWS provider chain (SSO, named profile, instance role) — **never** put long-lived access keys in `.env`.
 
-The stacks can be customized by modifying the respective files:
+## Documentation
 
-**EventBridge Rules** (`infra/eventbridge_stack.py`):
-- Add additional AWS services to monitor
-- Configure custom EventBridge rules and patterns
-- Modify SNS topic configuration
+| Doc                                                                       | What's in it                                                        |
+|---------------------------------------------------------------------------|---------------------------------------------------------------------|
+| [Architecture](docs/architecture.md)                                      | System overview, stacks, data flow, cross-stack contracts          |
+| [Outbound alerts](docs/outbound-alerts.md)                                | EventBridge → Lambda → SNS → Chatbot → Slack, in detail            |
+| [Inbound actions](docs/inbound-actions.md)                                | `/pipeline` slash command setup and runtime semantics              |
+| [Proactive monitors](docs/proactive-monitors.md)                          | Redshift + DMS pollers, custom event sources, QuickSight enrichment |
+| [Severity classification](docs/severity-classification.md)                | The 4 tiers and how the formatter dispatches them                  |
+| [Security](docs/security.md)                                              | HMAC, replay protection, IAM least-privilege, allowlists, OIDC     |
+| [CI/CD](docs/cicd.md)                                                     | GitHub OIDC role, workflow, deploy story                           |
+| [Testing strategy](docs/testing-strategy.md)                              | Synth-level vs. handler-level tests, mocking patterns              |
+| [Operations](docs/operations.md)                                          | Runbook: deploy, rotate, allowlist, debug, decommission            |
+| [Patterns and practices](docs/patterns-and-practices.md)                  | Catalog of the architecture patterns this project follows          |
+| [Architecture Decision Records](docs/adr/README.md)                       | 6 ADRs covering the major design choices                           |
 
-**Chatbot Configuration** (`infra/chatbot_stack.py`):
-- Update Slack workspace and channel IDs
-- Configure IAM permissions
-- Add multiple notification channels
+## License
 
-## 📁 Project Structure
-
-```
-aws-data-pipeline-notifications/
-├── app.py                           # CDK app entry point
-├── cdk.json                         # CDK configuration
-├── .env.example                     # Environment variables template
-├── .env                            # Environment variables (create from .env.example)
-├── Pipfile                         # Pipenv configuration
-├── requirements.txt                # Python dependencies
-├── requirements-dev.txt            # Development dependencies
-├── infra/
-│   ├── __init__.py
-│   ├── eventbridge_stack.py        # EventBridge rules and SNS topics
-│   └── chatbot_stack.py            # AWS Chatbot configuration
-└── tests/
-    ├── __init__.py
-    └── unit/
-        ├── __init__.py
-        └── test_aws_data_pipeline_notifications_stack.py
-```
-
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-python -m pytest tests/
-```
-
-For test coverage:
-
-```bash
-python -m pytest --cov=aws_data_pipeline_notifications tests/
-```
-
-## 📚 CDK Commands
-
-| Command | Description |
-|---------|-------------|
-| `cdk list` | List all stacks in the app |
-| `cdk synth` | Synthesize CloudFormation template |
-| `cdk deploy` | Deploy stack to AWS |
-| `cdk diff` | Compare deployed stack with current state |
-| `cdk destroy` | Remove the deployed stack |
-| `cdk docs` | Open CDK documentation |
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/Manuelacosta98/aws-data-pipeline-notifications/issues)
-- **Documentation**: Check the [AWS CDK Documentation](https://docs.aws.amazon.com/cdk/)
-- **Community**: Join the [AWS CDK Community](https://github.com/aws/aws-cdk)
-
-## 🏷️ Tags
-
-`aws` `cdk` `data-pipeline` `notifications` `eventbridge` `sns` `chatbot` `slack` `monitoring` `serverless`
+MIT — see [LICENSE](LICENSE).

@@ -7,11 +7,14 @@
     "exclude": [
       "README.md",
       "cdk*.json",
-      "requirements*.txt",
-      "source.bat",
+      "pyproject.toml",
+      "uv.lock",
+      ".python-version",
       "**/__init__.py",
       "**/__pycache__",
-      "tests"
+      "tests",
+      ".github",
+      "lambda/__pycache__"
     ]
   },
   "context": {

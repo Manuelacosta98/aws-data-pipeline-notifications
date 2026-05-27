@@ -6,6 +6,18 @@ __pycache__
 *.egg-info
 *.env
 
+# uv
+.uv-cache/
+
+# Coverage
+.coverage
+htmlcov/
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# IDE
+.idea/
+.vscode/
+.DS_Store

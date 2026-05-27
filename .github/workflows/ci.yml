@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Always: unit tests + cdk synth smoke test
+  # ---------------------------------------------------------------------
+  test-and-synth:
+    name: Test & CDK Synth
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies (frozen lockfile)
+        run: uv sync --frozen --dev
+
+      - name: Run unit tests
+        run: uv run pytest --cov=infra --cov=lambda --cov-report=term-missing
+
+      - name: Set up Node.js (for CDK CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: CDK Synth (smoke test)
+        run: uv run cdk synth
+        env:
+          # Dummy values — CI only verifies that templates synthesize cleanly.
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: "us-east-1"
+          SLACK_WORKSPACE_ID: "T00000000"
+          SLACK_CHANNEL_ID: "C00000000"
+          GITHUB_ORG: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+
+  # ---------------------------------------------------------------------
+  # 2. Push to main only: deploy via OIDC (no long-lived AWS keys in CI)
+  # ---------------------------------------------------------------------
+  deploy:
+    name: Deploy to AWS (OIDC)
+    needs: test-and-synth
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # required to mint the OIDC JWT
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies (frozen lockfile)
+        run: uv sync --frozen
+
+      - name: Set up Node.js (for CDK CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: CDK Deploy (EventBridge + ChatBot, plus SlackActions if enabled)
+        # OIDC role stack is bootstrap infra — deploy it manually once,
+        # not on every CI run. SlackActionsStack is included automatically
+        # whenever the repo's `vars.ENABLE_SLACK_ACTIONS` is set to "true"
+        # and the matching allowlist secrets are populated.
+        run: |
+          STACKS="EventBridgeStack ChatBotStack"
+          CTX_ARGS=""
+          if [ "${{ vars.ENABLE_SLACK_ACTIONS }}" = "true" ]; then
+            STACKS="$STACKS SlackActionsStack"
+            CTX_ARGS="-c enableSlackActions=true"
+            if [ -n "${{ vars.ALLOWED_GLUE_JOBS }}" ]; then
+              CTX_ARGS="$CTX_ARGS -c allowedGlueJobs=${{ vars.ALLOWED_GLUE_JOBS }}"
+            fi
+            if [ -n "${{ vars.ALLOWED_STATE_MACHINES }}" ]; then
+              CTX_ARGS="$CTX_ARGS -c allowedStateMachines=${{ vars.ALLOWED_STATE_MACHINES }}"
+            fi
+          fi
+          uv run cdk deploy $STACKS $CTX_ARGS --require-approval never
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+          SLACK_WORKSPACE_ID: ${{ secrets.SLACK_WORKSPACE_ID }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+
+      # -----------------------------------------------------------------
+      # Self-notifying: the alerting project announces its own deploys.
+      # Uses a Slack webhook URL stored as SLACK_WEBHOOK_URL — only the
+      # webhook (not the Chatbot integration) is needed for this step.
+      # -----------------------------------------------------------------
+      - name: Slack notification — deploy succeeded
+        if: success() && env.SLACK_WEBHOOK_URL != ''
+        uses: rtCamp/action-slack-notify@v2.3.3
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: 'good'
+          SLACK_ICON_EMOJI: ':rocket:'
+          SLACK_USERNAME: 'Pipeline Notifications Bot'
+          SLACK_TITLE: 'aws-data-pipeline-notifications deployed ✅'
+          SLACK_MESSAGE: |
+            • *Repo:* ${{ github.repository }}
+            • *Commit:* `${{ github.sha }}`
+            • *By:* ${{ github.actor }}
+            • *Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Slack notification — deploy failed
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: rtCamp/action-slack-notify@v2.3.3
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: 'danger'
+          SLACK_ICON_EMOJI: ':x:'
+          SLACK_USERNAME: 'Pipeline Notifications Bot'
+          SLACK_TITLE: 'aws-data-pipeline-notifications deploy FAILED ❌'
+          SLACK_MESSAGE: |
+            • *Repo:* ${{ github.repository }}
+            • *Commit:* `${{ github.sha }}`
+            • *By:* ${{ github.actor }}
+            • *Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
